@@ -1,7 +1,7 @@
 import argparse
 
-from otacon.data_types import comment_regex, sample_float, valid_date, dir_path, pos_tuple
-from otacon.prep_input import fetch_data_timeframe
+from quiet.data_types import comment_regex, sample_float, valid_date, dir_path, pos_tuple
+from quiet.prep_input import fetch_data_timeframe
 
 import logging
 logging.basicConfig(level=logging.NOTSET, format='INFO: %(message)s')

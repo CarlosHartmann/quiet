@@ -14,12 +14,11 @@ import calendar
 import argparse
 from typing import TextIO
 
-from otacon.finalize import cleanup, gather_output_files, extract_time_info
-from otacon.argument_handling import define_parser, handle_args
-from otacon.pushshift_handling import read_redditfile
-from otacon.prep_input import establish_timeframe
-from otacon.prep_output import assemble_outfile_name, write_csv_headers
-from otacon.sampling import get_samplepoints
+from quiet.finalize import cleanup, gather_output_files, extract_time_info
+from quiet.argument_handling import define_parser, handle_args
+from quiet.pushshift_handling import read_redditfile
+from quiet.prep_input import establish_timeframe
+from quiet.sampling import get_samplepoints
 
 # keep track of already-processed comments throughout function calls
 hash_set = set()
