@@ -8,20 +8,15 @@ import os
 import re
 import csv
 import json
-import hashlib
 import logging
 import calendar
 import argparse
 from typing import TextIO
 
-from quiet.finalize import cleanup, gather_output_files, extract_time_info
 from quiet.argument_handling import define_parser, handle_args
 from quiet.pushshift_handling import read_redditfile
 from quiet.prep_input import establish_timeframe
 from quiet.sampling import get_samplepoints
-
-# keep track of already-processed comments throughout function calls
-hash_set = set()
 
 # return stats from which subreddits the relevant comments were and how many per subreddits
 stats_dict = {}
@@ -86,93 +81,13 @@ def extract(args, comment_or_post: dict, compiled_comment_regex: str, include_qu
                     csvwriter.writerow(row)
 
 
-def filter(comment_or_post: dict, popularity_threshold: int) -> tuple:
-    """
-    Test if a Reddit comment or post breaks any of the filtering rules.
-    This is for nuanced criteria so positives are kept for manual review.
-    """
-    if popularity_threshold is not None:
-        if comment_or_post['score'] < popularity_threshold:
-            return True, "score below defined threshold"
-    if 'body' in list(comment_or_post.keys()):
-        text = comment_or_post['body']
-    else:
-        text = comment_or_post['selftext']
-
-    if "i'm a bot" in text.lower():
-        return True, "non-human generated"
-    
-    return False, None
-
-
 def relevant(comment_or_post: dict, args: argparse.Namespace) -> bool:
     """
     Test if a Reddit comment or post is at all relevant to the search.
     This is for broad criteria so negatives are discarded.
     The filters are ordered by how unlikely they are to pass for efficiency.
     """
-    if args.name is not None: # if a subreddit or user was specified as argument, the comment's metadata are checked accordingly
-        src = 'author' if args.src == 'user' else 'subreddit' # the username is called 'author' in the data
-        
-        nm = comment_or_post[src] if args.case_sensitive else comment_or_post[src].lower()
-        
-        if src not in comment_or_post.keys() or nm not in args.name: 
-            return False
-    
-    if args.toplevel and not comment_or_post['parent_id'].startswith('t3'):
-        return False
-    
-    regex = args.commentregex if args.searchmode == 'comms' else args.postregex
-    body = 'body' if args.searchmode == 'comms' else 'selftext'
-
-    if regex is not None:
-        search = re.search(regex, comment_or_post[body]) if args.case_sensitive else re.search(regex, comment_or_post[body], re.IGNORECASE)
-        if search: # checks if comment regex matches at least once, matches are extracted later
-            pass
-        else:
-            return False
-    
-    if args.titleregex is not None:
-        title = comment_or_post['title']
-        search = re.search(args.titleregex, title) if args.case_sensitive else re.search(args.titleregex, title, re.IGNORECASE)
-        return True if search else False
-    
-    if args.flairregex is not None:
-        if comment_or_post['author_flair_text'] is None:
-            return False
-        else:
-            search = re.search(args.flairregex, comment_or_post['author_flair_text']) if args.case_sensitive else re.search(args.flairregex, comment_or_post['author_flair_text'], re.IGNORECASE)
-            return True if search else False
-    
-    if args.userregex is not None:
-        search = re.search(args.userregex, comment_or_post['author']) if args.case_sensitive else re.search(args.userregex, comment_or_post['author'], re.IGNORECASE)
-        return True if search else False
-
-
-    if args.spacy_search:
-        token = args.spacy_search[0]
-        pos = args.spacy_search[1]
-        text = comment_or_post[body]
-        if token in text:
-            doc = args.nlp(text)
-            tk_list = [(elem.text.lower(), elem.pos_) for elem in doc]
-            if (token.lower(), pos) in tk_list:
-                pass
-            else:
-                return False
-        else:
-            return False
-
-    
-    h = hashlib.md5(json.dumps(comment_or_post, sort_keys=True).encode()) # dicts are unhashable, their original json form is preferrable
-    if h in hash_set: # hash check with all previous comments/posts in case the data contain redundancies
-        return False
-    else:
-        hash_set.add(h)
-        if not args.no_stats:
-            stats_dict.setdefault(comment_or_post['subreddit'], 0)
-            stats_dict[comment_or_post['subreddit']] += 1  
-        return True
+    # TODO: Reduce to either identification of starting-point comment or identification of parent comment
 
 
 def log_month(month: str):
@@ -234,45 +149,13 @@ def main():
         timeframe.reverse()
     logging.info(f"Searching from {timeframe[0]} to {timeframe[-1]}")
 
-    if args.spacy_search:
-        logging.info("Importing spacy…")
-        import spacy
-        logging.info(f"Importing {args.language} model…")
-        nlp = spacy.load(args.language)
-        args.nlp = nlp
-
     if not args.count:
         args.output = os.path.abspath(args.output)
 
     # Writing the CSV headers
     if not args.count:
         for month in timeframe:
-            outfile = assemble_outfile_name(args, month)
-            outfile = os.path.join(args.output, outfile)
-            reviewfile = outfile[:-4] + "_filtered-out_matches.csv" if not args.return_all else outfile[:-4] + "_filtered-out_matches.jsonl"
-            reviewfile = os.path.join(args.output, reviewfile)
-            if not args.return_all:
-                write_csv_headers(outfile, reviewfile)
             process_month(month, args, outfile, reviewfile)
-    elif args.count:
-        total_count = 0
-        for month in timeframe:
-            count = process_month(month, args, outfile=None, reviewfile=None)
-            logging.info(f"{count} instances for {month}")
-            total_count += count
-            if args.output:
-                stats_file = os.path.join(args.output, f'otacon_search_stats_{month}.txt')
-                with open(stats_file, "w") as outfile:
-                    _=outfile.write(json.dumps(stats_dict))
-        logging.info(f"{total_count} total instances")
-
-    if not args.count and not args.no_cleanup:
-        cleanup(args.output, extraction_name=assemble_outfile_name(args, month=None))
-
-    if args.output and not args.no_stats:
-        stats_file = os.path.join(args.output, 'otacon_search_stats.txt')
-        with open(stats_file, "w") as outfile:
-            _=outfile.write(json.dumps(stats_dict))
     
 
 if __name__ == "__main__":

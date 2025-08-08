@@ -6,7 +6,7 @@ from zstandard import ZstdDecompressor
 import logging
 logging.basicConfig(level=logging.NOTSET, format='INFO: %(message)s')
 
-def read_redditfile(file: str) -> dict:
+def read_redditfile(file: str):
     """
     Iterate over the pushshift JSON lines, yielding them as Python dicts.
     Decompress iteratively if necessary.
